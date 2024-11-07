@@ -11,7 +11,7 @@ from transformer import TransformerClassifier, TransformerLanguageModel
 
 seed = 42
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 
 """ Hyperparameters to use for training to roughly match 
 the numbers mentioned in the assignment description """
@@ -71,7 +71,7 @@ def compute_classifier_accuracy(classifier, data_loader):
     with torch.no_grad():
         for X, Y in data_loader:
             X, Y = X.to(device), Y.to(device)
-            outputs = classifier(X)
+            outputs, _, _ = classifier((X, None))
             _, predicted = torch.max(outputs.data, 1)
             total_correct += (predicted == Y).sum().item()
             total_samples += Y.size(0)
@@ -86,9 +86,10 @@ def compute_perplexity(decoderLMmodel, data_loader, eval_iters=100):
     """
     decoderLMmodel.eval()
     losses= []
+    total_loss = 0
     for X, Y in data_loader:
         X, Y = X.to(device), Y.to(device)
-        loss = decoderLMmodel(X, Y) # your model should be computing the cross entropy loss
+        _, loss, _ = decoderLMmodel(X, Y) # your model should be computing the cross entropy loss
         losses.append(loss.item())
         total_loss += loss.item()
         if len(losses) >= eval_iters: break
@@ -162,7 +163,7 @@ def main():
             model_classifier = TransformerClassifier(tokenizer.vocab_size, block_size, n_embd, n_head,
                                                     n_input, n_hidden, n_output, n_layer, device).to(device)
 
-            optimizer = torch.optim.AdamW(model_classifier.parameters(), lr=learning_rate)\
+            optimizer = torch.optim.AdamW(model_classifier.parameters(), lr=learning_rate)
 
             for epoch in range(epochs_CLS):
                 model_classifier.train()  # Set the model to training mode
@@ -202,6 +203,97 @@ def main():
             
             print("Sanity check completed!")
 
+            part = input("\nEnter other numbers to run another task (1,2,3,4): ")
+
+        elif part == "2":
+            print("\nPart 2: Language Modeling")
+            # Load the language model
+            language_model = TransformerLanguageModel(tokenizer.vocab_size, block_size, n_embd, n_head,
+                                                    n_input, n_hidden, n_layer, device).to(device)
+            
+            # Define the optimizer
+            optimizer = torch.optim.AdamW(language_model.parameters(), lr=learning_rate)
+
+            # for the language modeling task, you will iterate over the training data for a fixed number of iterations like this:
+            
+            for i, (xb, yb) in enumerate(train_LM_loader):
+                if i > max_iters:
+                    break
+
+                xb, yb = xb.to(device), yb.to(device)
+                # LM training code here
+                y_pred, loss, attention_maps = language_model((xb, None), yb)
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
+
+                if i%eval_interval == 0:
+                    print(f"Iter {i}: Train Loss {loss.item():.3f}; Train Perplexity {compute_perplexity(language_model, train_LM_loader):.4f}")
+
+            print(f"Obama Perplexity {compute_perplexity(language_model, test_LM_loader_obama):.4f}; H. Bush Perplexity {compute_perplexity(language_model, test_LM_loader_hbush):.4f}; W. Bush Perplexity {compute_perplexity(language_model, test_LM_loader_wbush):.4f}")
+
+            print("\nSanity check for language modelling")
+            sentence1 = "At the same time, peace brings real benefits to everyone."
+            sentence2 = "And this cycle of suspicion and discord must end."
+            utility_lm = Utilities(tokenizer, language_model)
+            print(f"Sentence 1: {sentence1}")
+            utility_lm.sanity_check(sentence1, block_size, "Part2Sent1_AttnMap")
+            print(f"Sentence 2: {sentence2}")
+            utility_lm.sanity_check(sentence2, block_size, "Part2Sent1_AttnMap")
+            print("Sanity check completed!")
+
+            part = input("\nEnter other numbers to run another part (1,2,3,4): ")
+
+
+        elif part == "3":
+            # Architectural Exploration
+            print("\nPart 3: Architectural Exploration")
+            print("Using ALiBi & RoPE for Classification")
+
+            # Load the classification model
+            classifier_model = TransformerClassifier(tokenizer.vocab_size, block_size, n_embd, n_head,
+                                                    n_input, n_hidden, n_output, n_layer, device, alibi=True).to(device)
+            
+            # Define the optimizer
+            optimizer = torch.optim.AdamW(classifier_model.parameters(), lr=learning_rate)
+
+            for epoch in range(epochs_CLS):
+                for xb, yb in train_CLS_loader:
+                    xb, yb = xb.to(device), yb.to(device)
+                    y_pred, loss, attention_maps = classifier_model((xb, None), yb)
+                    optimizer.zero_grad(set_to_none=True)
+                    loss.backward()
+                    optimizer.step()
+                print(f"Epoch {epoch}: Train Loss {loss.item():.3f}; Train Accuracy {compute_classifier_accuracy(classifier_model, train_CLS_loader):.3f}; Test Accuracy {compute_classifier_accuracy(classifier_model, test_CLS_loader):.3f}")
+
+            print("\nUsing ALiBi & RoPE for Language Modeling")
+            language_model = TransformerLanguageModel(tokenizer.vocab_size, block_size, n_embd, n_head,
+                                                    n_input, n_hidden, n_layer, device, alibi=True).to(device)
+            
+            optimizer = torch.optim.AdamW(language_model.parameters(), lr=learning_rate)
+
+            for i, (xb, yb) in enumerate(train_LM_loader):
+                if i > max_iters:
+                    break
+                xb, yb = xb.to(device), yb.to(device)
+                y_pred, loss, attention_maps = language_model((xb, None), yb)
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
+                if i%eval_interval == 0:
+                    print(f"Iter {i}: Train Loss {loss.item():.3f}; Train Perplexity {compute_perplexity(language_model, train_LM_loader):.4f}")
+
+            print(f"Obama Perplexity {compute_perplexity(language_model, test_LM_loader_obama):.4f}; H. Bush Perplexity {compute_perplexity(language_model, test_LM_loader_hbush):.4f}; W. Bush Perplexity {compute_perplexity(language_model, test_LM_loader_wbush):.4f}")
+
+            part = input("\nEnter other numbers to run another part (1,2,3,4): ")
+
+        elif part == "4":
+            print("\nExiting...")
+            break
+
+
+        else:
+            part = input("Enter a valid number (1,2,3,4): ")
 
 if __name__ == "__main__":
     main()

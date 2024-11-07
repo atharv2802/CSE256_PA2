@@ -256,7 +256,7 @@ class TransformerClassifier(nn.Module):
             x, attention_maps = x
         else:
             attention_maps = None
-        #print(x)
+        #print(len(x))
         batch, time = x.shape
 
         # Input embedding
@@ -302,6 +302,10 @@ class TransformerLanguageModel(nn.Module):
 
     def forward(self, x, targets=None):
         #x, attention_maps = x
+        if len(x) == 2:
+            x, attention_maps = x
+        else:
+            attention_maps = None
         batch, time = x.shape
 
         # Input embedding and positional encoding
